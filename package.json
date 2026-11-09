@@ -1,0 +1,14 @@
+{
+  "name": "hacksitone-website",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Hacksitone cybersecurity website (Node.js + Turso)",
+  "engines": { "node": ">=20" },
+  "scripts": {
+    "start": "node server.js",
+    "start:prod": "NODE_ENV=production node server.js"
+  },
+  "dependencies": {
+    "@libsql/client": "^0.15.4"
+  }
+}
