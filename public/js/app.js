@@ -43,3 +43,22 @@ if (slide) {
     slide.textContent = `0${current} / 04`;
   }, 4200);
 }
+
+document.querySelectorAll('input[type="password"]').forEach((input) => {
+  const btn = document.createElement('button');
+  btn.type = 'button';
+  btn.className = 'pw-toggle';
+  btn.textContent = 'Show';
+  btn.setAttribute('aria-label', 'Show password');
+  btn.addEventListener('click', () => {
+    const show = input.type === 'password';
+    input.type = show ? 'text' : 'password';
+    btn.textContent = show ? 'Hide' : 'Show';
+    btn.setAttribute('aria-label', show ? 'Hide password' : 'Show password');
+  });
+  input.insertAdjacentElement('afterend', btn);
+});
+
+document.querySelectorAll('form[data-confirm]').forEach((form) => {
+  form.addEventListener('submit', (e) => { if (!window.confirm(form.dataset.confirm)) e.preventDefault(); });
+});
