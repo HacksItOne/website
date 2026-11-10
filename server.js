@@ -249,6 +249,31 @@ function serveStatic(req, res, pathname) {
 }
 
 // ---------- router ----------
+async function adminJobDelete(req, res, s, f) {
+  if (!s.isAdmin) return redirect(res, '/admin/login');
+  const slug = String(f.slug || '').trim().toLowerCase();
+  if (slug) await qJobDelete(slug);
+  return redirect(res, '/admin');
+}
+
+async function submitApplication(req, res, s, f) {
+  const jobSlug = String(f.jobSlug || '').trim().toLowerCase();
+  const name = String(f.name || '').trim().slice(0, 100);
+  const email = String(f.email || '').trim().toLowerCase().slice(0, 254);
+  const phone = String(f.phone || '').trim().slice(0, 30);
+  const resumeUrl = String(f.resumeUrl || '').trim().slice(0, 500);
+  const coverLetter = String(f.coverLetter || '').trim().slice(0, 5000);
+  const job = await qJobGet(jobSlug);
+  const emailOk = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
+  const urlOk = !resumeUrl || /^https?:\/\/[^\s]+$/i.test(resumeUrl);
+  if (!job || job.status !== 'active' || name.length < 2 || !emailOk || !urlOk || coverLetter.length < 10) {
+    return send(res, 400, 'Please go back and check your details: name, a valid email, a valid http(s) resume link, and a short cover letter.', 'text/plain; charset=utf-8');
+  }
+  await run('INSERT INTO applications(name,email,phone,coverLetter,resumeUrl,jobSlug,created) VALUES(?,?,?,?,?,?,?)', [name, email, phone, coverLetter, resumeUrl, jobSlug, Date.now()]);
+  return send(res, 200, layout({ path: '/application', user: s.name, csrf: s.csrf, noindex: true, title: 'Application received | Hacksitone', desc: 'Application received.',
+    body: `<section class="wrap narrow"><h1>Application received</h1><p class="msg ok">Thank you, ${esc(name)}. We have received your application for ${esc(job.title)}.</p><p><a class="btn ghost" href="/careers">Back to Careers</a></p></section>` }));
+}
+
 const server = http.createServer(async (req, res) => {
   secHeaders(res);
   try {
@@ -270,13 +295,14 @@ const server = http.createServer(async (req, res) => {
       if (pathname === '/admin/jobs') return await adminJobs(req, res, s);
       if (pathname === '/admin/jobs/create') return await adminJobCreate(req, res, s, f);
       if (pathname === '/admin/jobs/update') return await adminJobUpdate(req, res, s, f);
+      if (pathname === '/admin/jobs/delete') return await adminJobDelete(req, res, s, f);
       if (pathname === '/application') return await submitApplication(req, res, s, f);
       sessions.delete(s.tok); res.setHeader('Set-Cookie', `${COOKIE}=; Path=/; HttpOnly; SameSite=Strict; Max-Age=0${PROD ? '; Secure' : ''}`);
       return redirect(res, '/');
     }
     if (req.method !== 'GET' && req.method !== 'HEAD') return send(res, 405, 'Method not allowed', 'text/plain');
 
-    if (body[pathname]) return send(res, 200, render(req, pathname, getSession(req, res, false)));
+    if (pathname !== '/careers' && body[pathname]) return send(res, 200, render(req, pathname, getSession(req, res, false)));
     if (pathname === '/login' || pathname === '/register') {
       const s = getSession(req, res, true); if (!s) return send(res, 503, 'Busy', 'text/plain');
       if (s.uid) return redirect(res, '/dashboard');
@@ -290,27 +316,45 @@ const server = http.createServer(async (req, res) => {
       return send(res, 200, layout({ path: '/dashboard', user: s.name, csrf: s.csrf, noindex: true, title: 'Dashboard | Hacksitone', desc: 'Your Hacksitone account.',
         body: `<section class="wrap"><h1>Welcome, ${require('./views').esc(s.name)}</h1><p class="lead">You are signed in as ${require('./views').esc(row.email)}. Member since ${new Date(row.created).toLocaleDateString('en-GB')}.</p><p>We will email you when Hacksitone products open for early access.</p></section>` }));
     }
-    if (pathname === '/job') {
-      const slug = pathname.replace('/job/', '');
+    if (pathname.startsWith('/job/')) {
+      let slug = '';
+      try { slug = decodeURIComponent(pathname.slice(5)).toLowerCase(); } catch { return notFound(res); }
       const job = await qJobGet(slug);
-      if (!job) return notFound(res);
       const s = getSession(req, res, false);
-      return send(res, 200, layout({ path: '/job', user: s && s.name, csrf: s && s.csrf, noindex: true, title: `Job: ${job.title} | Hacksitone`, desc: job.description.substring(0, 100) + '...', body: `<section class="wrap"><h1>${esc(job.title)}</h1><p class="lead">${esc(job.description)}</p><dl class="rules"><dt>Location</dt><dd>${esc(job.location || 'Not specified')}</dd><dt>Type</dt><dd>${esc(job.type || 'Not specified')}</dd><dt>Status</dt><dd>${esc(job.status)}</dd></dl><p><a class="btn" href="/application?job=${job.slug}">Apply Now</a> <a class="btn ghost" href="/careers">Back to Careers</a></p></section>` }));
+      if (!job || (job.status !== 'active' && !(s && s.isAdmin))) return notFound(res);
+      return send(res, 200, layout({ path: '/job', user: s && s.name, csrf: s && s.csrf, title: `${job.title} | Hacksitone Careers`, desc: job.description.substring(0, 150),
+        body: `<section class="wrap"><h1>${esc(job.title)}</h1><p class="lead">${esc(job.description)}</p><dl class="rules"><div><dt>Location</dt><dd>${esc(job.location || 'Not specified')}</dd><dt>Type</dt><dd>${esc(job.type || 'Full-time')}</dd>${job.requirements ? `<dt>Requirements</dt><dd style="white-space:pre-wrap">${esc(job.requirements)}</dd>` : ''}</div></dl><p>${job.status === 'active' ? `<a class="btn" href="/application?job=${encodeURIComponent(job.slug)}">Apply Now</a> ` : ''}<a class="btn ghost" href="/careers">Back to Careers</a></p></section>` }));
+    }
+    if (pathname === '/application') {
+      const slug = String(new URL(req.url, 'http://x').searchParams.get('job') || '').toLowerCase();
+      const job = await qJobGet(slug);
+      if (!job || job.status !== 'active') return notFound(res);
+      const s = getSession(req, res, true); if (!s) return send(res, 503, 'Busy', 'text/plain');
+      return send(res, 200, layout({ path: '/application', user: s.name, csrf: s.csrf, noindex: true, title: `Apply: ${job.title} | Hacksitone`, desc: 'Apply for a role at Hacksitone.',
+        body: `<section class="wrap narrow"><h1>Apply: ${esc(job.title)}</h1><form method="post" action="/application"><input type="hidden" name="_csrf" value="${esc(s.csrf)}"><input type="hidden" name="jobSlug" value="${esc(job.slug)}"><label for="name">Full name</label><input id="name" name="name" maxlength="100" required><label for="email">Email</label><input id="email" name="email" type="email" maxlength="254" required><label for="phone">Phone (optional)</label><input id="phone" name="phone" maxlength="30"><label for="resumeUrl">Resume link (Google Drive, LinkedIn, etc.)</label><input id="resumeUrl" name="resumeUrl" type="url" maxlength="500"><label for="coverLetter">Why do you want to join us?</label><textarea id="coverLetter" name="coverLetter" rows="6" maxlength="5000" required></textarea><button class="btn" type="submit">Submit application</button></form></section>` }));
     }
     if (pathname === '/careers') {
-      const jobs = await qJobGetAll();
+      const jobs = (await qJobGetAll()).filter((j) => j.status === 'active');
       const s = getSession(req, res, false);
-      return send(res, 200, layout({ path: '/careers', user: s && s.name, csrf: s && s.csrf, noindex: true, title: 'Careers | Hacksitone', desc: 'Build defensive security at Hacksitone. See open roles in security engineering, research and operations.', body: `<section class="wrap"><h1>Careers at Hacksitone</h1><p class="lead">Help us secure what matters. We hire people who like understanding how things break and building them so they don't.</p><dl class="rules">${jobs.map(job => `<div><dt>${esc(job.title)}</dt><dd>${esc(job.description)}</dd><dt>Location</dt><dd>${esc(job.location || 'Not specified')}</dd><dt>Type</dt><dd>${esc(job.type || 'Full-time')}</dd></div>`).join('')}</dl>${jobs.length === 0 ? '<p><em>No job postings yet. <a href="/admin">Add admin panel</a> to manage job postings.</em></p>' : ''}<p><a class="btn" href="/admin">Admin Panel</a> to manage job postings.</p></section>` }));
+      return send(res, 200, layout({ path: '/careers', user: s && s.name, csrf: s && s.csrf, title: 'Careers | Join Hacksitone', desc: 'Build defensive security at Hacksitone. See open roles in security engineering, research and operations.',
+        body: `<section class="wrap"><h1>Careers at Hacksitone</h1><p class="lead">Help us secure what matters. We hire people who like understanding how things break and building them so they don't.</p><dl class="rules">${jobs.map((job) => `<div><dt><a href="/job/${encodeURIComponent(job.slug)}">${esc(job.title)}</a></dt><dd>${esc(job.description.substring(0, 200))}${job.description.length > 200 ? '…' : ''}</dd><dt>Location</dt><dd>${esc(job.location || 'Not specified')}</dd><dt>Type</dt><dd>${esc(job.type || 'Full-time')}</dd></div>`).join('')}</dl>${jobs.length === 0 ? '<p><em>No open positions right now. Please check back soon.</em></p>' : ''}</section>` }));
     }
     if (pathname === '/news') {
       const s = getSession(req, res, false);
       const articles = await fetchCyberNews();
       return send(res, 200, layout({ path: '/news', user: s && s.name, csrf: s && s.csrf, noindex: true, title: 'Cybersecurity News | Hacksitone', desc: 'Latest cybersecurity news, threat intelligence, and security research from across the industry.', body: `<section class="wrap"><h1>Cybersecurity News</h1><p class="lead">Curated security news, vulnerability disclosures, and threat intelligence from trusted sources.</p><div class="news-grid">${articles.map(a => `<article class="news-card" data-reveal><h2><a href="${esc(a.url)}" target="_blank" rel="noopener">${esc(a.title)}</a></h2><p class="news-meta">${esc(a.source)} • ${new Date(a.date).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}</p><p class="news-excerpt">${esc(a.excerpt)}</p><a class="news-link" href="${esc(a.url)}" target="_blank" rel="noopener">Read more →</a></article>`).join('')}</div>${articles.length === 0 ? '<p class="lead">Unable to fetch news at this time. Please try again later.</p>' : ''}<p style="margin-top:2rem"><a class="btn ghost" href="/">Back to Home</a></p></section>` }));
     }
+    if (pathname === '/admin/applications') {
+      const s = getSession(req, res, false); if (!s || !s.isAdmin) return redirect(res, '/admin/login');
+      const apps = await many('SELECT * FROM applications ORDER BY created DESC LIMIT 200');
+      return send(res, 200, layout({ path: '/admin', user: s.name, csrf: s.csrf, noindex: true, title: 'Applications | Hacksitone', desc: 'Job applications.',
+        body: `<section class="wrap"><h1>Applications</h1><p><a class="btn ghost sm" href="/admin">Back to Admin</a></p>${apps.length === 0 ? '<p><em>No applications yet.</em></p>' : ''}<dl class="rules">${apps.map((a) => `<div><dt>${esc(a.name)} — ${esc(a.jobSlug)}</dt><dd>${esc(a.email)}${a.phone ? ' · ' + esc(a.phone) : ''} · ${new Date(a.created).toLocaleString('en-GB')}</dd>${a.resumeUrl ? `<dd><a href="${esc(a.resumeUrl)}" target="_blank" rel="noopener noreferrer">Resume link</a></dd>` : ''}<dd style="white-space:pre-wrap">${esc(a.coverLetter || '')}</dd></div>`).join('')}</dl></section>` }));
+    }
     if (pathname === '/admin') {
       const s = getSession(req, res, false); if (!s || !s.isAdmin) return redirect(res, '/admin/login');
       const jobs = await qJobGetAll();
-      return send(res, 200, layout({ path: '/admin', user: s.name, csrf: s.csrf, noindex: true, title: 'Admin Panel | Hacksitone', desc: 'Admin panel for managing job postings and site settings.', body: `<section class="wrap"><h1>Admin Panel</h1><p>Manage job postings for the careers page.</p><div class="jobs-list">${jobs.map(job => `<div class="job-card"><h2>${esc(job.title)}</h2><p>${esc(job.description.substring(0, 80))}...</p><div><a class="btn sm" href="/admin/jobs/edit/${job.slug}">Edit</a> <a class="btn sm ghost" href="/admin/jobs/delete/${job.slug}" onclick="return confirm('Delete this job?')">Delete</a></div></div>`).join('')}</div><form method="post" action="/admin/jobs/create"><input type="hidden" name="_csrf" value="${esc(s.csrf)}"><input type="hidden" name="slug" value=""></input><h2>Create New Job Posting</h2><label>Title <input type="text" name="title" required></label><label>Slug <input type="text" name="slug" required></label><label>Description <textarea name="description" rows="3" required></textarea></label><label>Requirements <textarea name="requirements" rows="3"></textarea></label><label>Location <input type="text" name="location"></label><label>Type <input type="text" name="type" value="Full-time"></label><button class="btn" type="submit">Create Job</button></form></section>` }));
+      return send(res, 200, layout({ path: '/admin', user: s.name, csrf: s.csrf, noindex: true, title: 'Admin Panel | Hacksitone', desc: 'Admin panel for managing job postings and site settings.',
+        body: `<section class="wrap"><h1>Admin Panel</h1><p>Manage job postings for the careers page. <a href="/admin/applications">View applications</a></p><div class="jobs-list">${jobs.map((job) => `<div class="job-card"><h2>${esc(job.title)} <span class="tag">${esc(job.status)}</span></h2><p>${esc(job.description.substring(0, 80))}...</p><div><a class="btn sm" href="/admin/jobs/edit/${encodeURIComponent(job.slug)}">Edit</a> <form method="post" action="/admin/jobs/delete" data-confirm="Delete this job?" style="display:inline;margin:0"><input type="hidden" name="_csrf" value="${esc(s.csrf)}"><input type="hidden" name="slug" value="${esc(job.slug)}"><button class="btn sm ghost" type="submit">Delete</button></form></div></div>`).join('')}</div><form method="post" action="/admin/jobs/create"><input type="hidden" name="_csrf" value="${esc(s.csrf)}"><h2>Create New Job Posting</h2><label>Title <input type="text" name="title" required></label><label>Slug (letters, numbers, hyphens) <input type="text" name="slug" required></label><label>Description <textarea name="description" rows="3" required></textarea></label><label>Requirements <textarea name="requirements" rows="3"></textarea></label><label>Location <input type="text" name="location"></label><label>Type <input type="text" name="type" value="Full-time"></label><button class="btn" type="submit">Create Job</button></form></section>` }));
     }
     const editMatch = pathname.match(/^\/admin\/jobs\/edit\/([^/]+)$/);
     if (editMatch) {
