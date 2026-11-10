@@ -6,7 +6,7 @@ const esc = (s) => {
   return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
 };
 
-const TEAM = [['Vibhu Yadav', 'Founder and CIO'], ['Chirag Solanki', 'Co-founder and CTO'], ['Tanmay Jha', 'Co-founder and CEO'], ['Harshit Goswami', 'Co-founder and COO'], ['Prem Singh', 'Co-founder and CMO'], ['Dushyant Nagal', 'Co-founder and CFO']];
+const TEAM = [['Vibhu Yadav', 'Founder and CEO'], ['Chirag Solanki', 'Co-founder and CTO'], ['Tanmay Jha', 'Co-founder and CIO'], ['Harshit Goswami', 'Co-founder and COO'], ['Prem Singh', 'Vice President of Marketing'], ['Dushyant Nagal', 'Content & PR Manager']];
 
 const NAV = [['/', 'Home'], ['/about', 'About Us'], ['/services', 'Services'], ['/upcoming-products', 'Upcoming Products'], ['/news', 'News'], ['/careers', 'Careers']];
 
