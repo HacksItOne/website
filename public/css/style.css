@@ -34,3 +34,4 @@ footer{background:var(--deep);border-top:1px solid var(--line);padding:40px clam
 @media(max-width:560px){.team-grid{grid-template-columns:1fr;gap:18px}.team-photo{height:250px}.team-info{padding:16px}}
 
 .pw-toggle{justify-self:start;background:none;border:0;color:var(--teal);cursor:pointer;padding:4px 0;font:inherit;font-size:.9rem}.pw-toggle:hover{text-decoration:underline}
+.pre{white-space:pre-wrap}.inline-form{display:inline-grid;margin:0}.notfound{text-align:center;display:grid;justify-items:center}.notfound h1{max-width:none}.big404{font-size:clamp(5rem,18vw,10rem);font-weight:300;line-height:1;margin:0;color:var(--teal);letter-spacing:-.05em}.nf-actions{display:flex;flex-wrap:wrap;gap:12px;justify-content:center;margin-top:24px}
