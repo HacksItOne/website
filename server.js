@@ -22,7 +22,8 @@ function send(res, status, html, type = 'text/html; charset=utf-8', cache = 'no-
 }
 const redirect = (res, to) => { res.writeHead(303, { Location: to, 'Cache-Control': 'no-store' }); res.end(); };
 function notFound(res) {
-  send(res, 404, layout({ path: '/404', title: 'Page not found | Hacksitone', desc: 'Page not found.', noindex: true, body: '<section class="wrap"><h1>Page not found</h1><p class="lead">That page does not exist. Return <a href="/">home</a> or browse our <a href="/services">services</a>.</p></section>' }));
+  send(res, 404, layout({ path: '/404', title: 'Page not found | Hacksitone', desc: 'Page not found.', noindex: true,
+    body: '<section class="wrap notfound"><p class="big404">404</p><h1>Page not found</h1><p class="lead">The page you are looking for does not exist or has moved.</p><p class="nf-actions"><a class="btn" href="/">Go to Home</a> <a class="btn ghost" href="/services">Our Services</a> <a class="btn ghost" href="/careers">Careers</a></p></section>' }));
 }
 
 // ---------- database: Turso (libSQL), parameterized queries only ----------
@@ -283,7 +284,7 @@ const server = http.createServer(async (req, res) => {
     const pathname = new URL(req.url, 'http://x').pathname;
 
     if (req.method === 'POST') {
-      if (!['/login', '/register', '/logout', '/admin/login', '/admin/jobs', '/admin/jobs/create', '/admin/jobs/update', '/application'].includes(pathname)) return send(res, 405, 'Method not allowed', 'text/plain');
+      if (!['/login', '/register', '/logout', '/admin/login', '/admin/jobs', '/admin/jobs/create', '/admin/jobs/update', '/admin/jobs/delete', '/application'].includes(pathname)) return send(res, 405, 'Method not allowed', 'text/plain');
       if (!sameOrigin(req)) return send(res, 403, 'Forbidden', 'text/plain');
       if (pathname !== '/logout' && hit('a:' + ip, 10, 15 * 60000)) return send(res, 429, 'Too many attempts. Try again in 15 minutes.', 'text/plain; charset=utf-8');
       const f = await readForm(req); const s = getSession(req, res, true);
@@ -323,7 +324,7 @@ const server = http.createServer(async (req, res) => {
       const s = getSession(req, res, false);
       if (!job || (job.status !== 'active' && !(s && s.isAdmin))) return notFound(res);
       return send(res, 200, layout({ path: '/job', user: s && s.name, csrf: s && s.csrf, title: `${job.title} | Hacksitone Careers`, desc: job.description.substring(0, 150),
-        body: `<section class="wrap"><h1>${esc(job.title)}</h1><p class="lead">${esc(job.description)}</p><dl class="rules"><div><dt>Location</dt><dd>${esc(job.location || 'Not specified')}</dd><dt>Type</dt><dd>${esc(job.type || 'Full-time')}</dd>${job.requirements ? `<dt>Requirements</dt><dd style="white-space:pre-wrap">${esc(job.requirements)}</dd>` : ''}</div></dl><p>${job.status === 'active' ? `<a class="btn" href="/application?job=${encodeURIComponent(job.slug)}">Apply Now</a> ` : ''}<a class="btn ghost" href="/careers">Back to Careers</a></p></section>` }));
+        body: `<section class="wrap"><h1>${esc(job.title)}</h1><p class="lead">${esc(job.description)}</p><dl class="rules"><div><dt>Location</dt><dd>${esc(job.location || 'Not specified')}</dd><dt>Type</dt><dd>${esc(job.type || 'Full-time')}</dd>${job.requirements ? `<dt>Requirements</dt><dd class="pre">${esc(job.requirements)}</dd>` : ''}</div></dl><p>${job.status === 'active' ? `<a class="btn" href="/application?job=${encodeURIComponent(job.slug)}">Apply Now</a> ` : ''}<a class="btn ghost" href="/careers">Back to Careers</a></p></section>` }));
     }
     if (pathname === '/application') {
       const slug = String(new URL(req.url, 'http://x').searchParams.get('job') || '').toLowerCase();
@@ -348,13 +349,13 @@ const server = http.createServer(async (req, res) => {
       const s = getSession(req, res, false); if (!s || !s.isAdmin) return redirect(res, '/admin/login');
       const apps = await many('SELECT * FROM applications ORDER BY created DESC LIMIT 200');
       return send(res, 200, layout({ path: '/admin', user: s.name, csrf: s.csrf, noindex: true, title: 'Applications | Hacksitone', desc: 'Job applications.',
-        body: `<section class="wrap"><h1>Applications</h1><p><a class="btn ghost sm" href="/admin">Back to Admin</a></p>${apps.length === 0 ? '<p><em>No applications yet.</em></p>' : ''}<dl class="rules">${apps.map((a) => `<div><dt>${esc(a.name)} — ${esc(a.jobSlug)}</dt><dd>${esc(a.email)}${a.phone ? ' · ' + esc(a.phone) : ''} · ${new Date(a.created).toLocaleString('en-GB')}</dd>${a.resumeUrl ? `<dd><a href="${esc(a.resumeUrl)}" target="_blank" rel="noopener noreferrer">Resume link</a></dd>` : ''}<dd style="white-space:pre-wrap">${esc(a.coverLetter || '')}</dd></div>`).join('')}</dl></section>` }));
+        body: `<section class="wrap"><h1>Applications</h1><p><a class="btn ghost sm" href="/admin">Back to Admin</a></p>${apps.length === 0 ? '<p><em>No applications yet.</em></p>' : ''}<dl class="rules">${apps.map((a) => `<div><dt>${esc(a.name)} — ${esc(a.jobSlug)}</dt><dd>${esc(a.email)}${a.phone ? ' · ' + esc(a.phone) : ''} · ${new Date(a.created).toLocaleString('en-GB')}</dd>${a.resumeUrl ? `<dd><a href="${esc(a.resumeUrl)}" target="_blank" rel="noopener noreferrer">Resume link</a></dd>` : ''}<dd class="pre">${esc(a.coverLetter || '')}</dd></div>`).join('')}</dl></section>` }));
     }
     if (pathname === '/admin') {
       const s = getSession(req, res, false); if (!s || !s.isAdmin) return redirect(res, '/admin/login');
       const jobs = await qJobGetAll();
       return send(res, 200, layout({ path: '/admin', user: s.name, csrf: s.csrf, noindex: true, title: 'Admin Panel | Hacksitone', desc: 'Admin panel for managing job postings and site settings.',
-        body: `<section class="wrap"><h1>Admin Panel</h1><p>Manage job postings for the careers page. <a href="/admin/applications">View applications</a></p><div class="jobs-list">${jobs.map((job) => `<div class="job-card"><h2>${esc(job.title)} <span class="tag">${esc(job.status)}</span></h2><p>${esc(job.description.substring(0, 80))}...</p><div><a class="btn sm" href="/admin/jobs/edit/${encodeURIComponent(job.slug)}">Edit</a> <form method="post" action="/admin/jobs/delete" data-confirm="Delete this job?" style="display:inline;margin:0"><input type="hidden" name="_csrf" value="${esc(s.csrf)}"><input type="hidden" name="slug" value="${esc(job.slug)}"><button class="btn sm ghost" type="submit">Delete</button></form></div></div>`).join('')}</div><form method="post" action="/admin/jobs/create"><input type="hidden" name="_csrf" value="${esc(s.csrf)}"><h2>Create New Job Posting</h2><label>Title <input type="text" name="title" required></label><label>Slug (letters, numbers, hyphens) <input type="text" name="slug" required></label><label>Description <textarea name="description" rows="3" required></textarea></label><label>Requirements <textarea name="requirements" rows="3"></textarea></label><label>Location <input type="text" name="location"></label><label>Type <input type="text" name="type" value="Full-time"></label><button class="btn" type="submit">Create Job</button></form></section>` }));
+        body: `<section class="wrap"><h1>Admin Panel</h1><p>Manage job postings for the careers page. <a href="/admin/applications">View applications</a></p><div class="jobs-list">${jobs.map((job) => `<div class="job-card"><h2>${esc(job.title)} <span class="tag">${esc(job.status)}</span></h2><p>${esc(job.description.substring(0, 80))}...</p><div><a class="btn sm" href="/admin/jobs/edit/${encodeURIComponent(job.slug)}">Edit</a> <form method="post" action="/admin/jobs/delete" data-confirm="Delete this job?" class="inline-form"><input type="hidden" name="_csrf" value="${esc(s.csrf)}"><input type="hidden" name="slug" value="${esc(job.slug)}"><button class="btn sm ghost" type="submit">Delete</button></form></div></div>`).join('')}</div><form method="post" action="/admin/jobs/create"><input type="hidden" name="_csrf" value="${esc(s.csrf)}"><h2>Create New Job Posting</h2><label>Title <input type="text" name="title" required></label><label>Slug (letters, numbers, hyphens) <input type="text" name="slug" required></label><label>Description <textarea name="description" rows="3" required></textarea></label><label>Requirements <textarea name="requirements" rows="3"></textarea></label><label>Location <input type="text" name="location"></label><label>Type <input type="text" name="type" value="Full-time"></label><button class="btn" type="submit">Create Job</button></form></section>` }));
     }
     const editMatch = pathname.match(/^\/admin\/jobs\/edit\/([^/]+)$/);
     if (editMatch) {
