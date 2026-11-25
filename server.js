@@ -275,8 +275,23 @@ async function submitApplication(req, res, s, f) {
     body: `<section class="wrap narrow"><h1>Application received</h1><p class="msg ok">Thank you, ${esc(name)}. We have received your application for ${esc(job.title)}.</p><p><a class="btn ghost" href="/careers">Back to Careers</a></p></section>` }));
 }
 
+
 const server = http.createServer(async (req, res) => {
   secHeaders(res);
+
+  // Render health check endpoint
+  if (req.method === 'GET' && req.url === '/health') {
+    res.writeHead(200, {
+      'Content-Type': 'application/json',
+      'Cache-Control': 'no-store'
+    });
+
+    return res.end(JSON.stringify({
+      status: 'OK',
+      message: 'HacksItOne server is running'
+    }));
+  }
+
   try {
     const ip = clientIp(req);
     if (hit('g:' + ip, 300, 60000)) return send(res, 429, 'Too many requests. Slow down.', 'text/plain; charset=utf-8');
